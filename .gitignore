@@ -1,2 +1,10 @@
+# Project exclude paths
 /node_modules/
 /target/
+/.idea/
+/src/main/java/
+/src/main/resources/
+/src/main/webapp/WEB-INF/
+/src/test/
+
+*.css

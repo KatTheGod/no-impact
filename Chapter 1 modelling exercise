@@ -1,0 +1,552 @@
+import * as THREE from "./three.module.js"
+import {OrbitControls} from "./OrbitControls.js";
+
+let revolution = Math.PI * 2;
+let sceneDimensions = 1000;
+let tiny = 0.01;
+let car;
+let streetRadius, frameNumber;
+
+let scene, renderer, camera, controls, otherControls;
+let frontAxle, backAxle;
+
+let bodiesRadius = 25;
+let maxAmbianceSun = 0.5;
+let maxAmbianceMoon = 0.1;
+let sun, ambientSun, moon, ambientMoon;
+
+let sunCycle = 500;
+let carCycle = 750;
+
+let spotLightHelpers = [];
+let carSpotLights = [];
+
+let pressed = false;
+let keyboardEvent;
+
+init();
+
+function init(){
+    //Main 3
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(90, innerWidth/ innerHeight, 0.1, 2000);
+    camera.position.z = 5;
+
+    //Renderer Initialization
+    renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+    renderer.setClearColor(new THREE.Color(0.7, 0.7, 0.7));
+
+    //Orbit Controls
+    controls = new OrbitControls(camera, renderer.domElement);
+
+    //Grid Helper
+    //scene.add(katGridHelper(1));
+
+    //Lights
+    //add8Lights();
+    addSun();
+    addMoon();
+
+    //Event Listeners
+    window.addEventListener("keydown", keyDown);
+    window.addEventListener("keyup", keyUp);
+
+    staticScene();
+
+    animate();
+}
+
+function keyDown(event){
+    pressed = true;
+    keyboardEvent = event;
+}
+
+function keyUp(event){
+    pressed = false;
+    keyboardEvent = event;
+}
+
+function staticScene(){
+    frameNumber = 0;
+
+    let logRadius = 0.5;
+
+    let result = createRoad();
+
+    let road = result[0];
+    let roadHeight = result[1];
+    let roadRadius = result[2];
+    let streetOuterRadius = result[3];
+    let streetInnerRadius = result[4];
+    road.position.y -= roadHeight / 2;
+    scene.add(road);
+
+    createTreeSet(roadRadius, streetOuterRadius, streetInnerRadius, logRadius);
+
+    streetRadius = streetInnerRadius + (streetOuterRadius - streetInnerRadius) / 2;
+
+    result = createCar();
+    car = result[0];
+    let carHeight = result[1];
+    let carScale = 0.5;
+
+    car.scale.set(carScale, carScale, carScale);
+    car.position.x += streetRadius;
+    car.position.y += carHeight / 2 * carScale;
+
+    scene.add(car);
+}
+
+function add8Lights(){
+    let first = 1;
+    let second = 1;
+    let last = 1;
+
+    let degree = sceneDimensions;
+
+    while (first !== 3){
+        let firstDegree = (first === 1) ? 1 : -1;
+        let secondDegree = (second === 1) ? 1 : -1;
+        let lastDegree = (last === 1) ? 1 : -1;
+
+        let light = new THREE.PointLight("white", 0.4, 0);
+
+        light.position.set(degree * firstDegree, degree * secondDegree, degree * lastDegree);
+        scene.add(light);
+
+        let pointLightHelper = new THREE.PointLightHelper(light, sceneDimensions / 100, "black");
+        //scene.add(pointLightHelper);
+
+        last++;
+        if (last === 3){
+            last = 1;
+            second++;
+            if (second === 3){
+                second = 1;
+                first++;
+            }
+        }
+    }
+}
+
+function addSun(){
+    sun = new THREE.DirectionalLight("white", 1);
+    sun.position.set(bodiesRadius, 0, 0);
+
+    scene.add(sun);
+
+    let pointLightHelper = new THREE.PointLightHelper(sun, 1, "black");
+    scene.add(pointLightHelper);
+
+    ambientSun = new THREE.AmbientLight("white", maxAmbianceSun);
+    scene.add(ambientSun);
+}
+
+function addMoon(){
+    moon = new THREE.DirectionalLight("blue", maxAmbianceMoon * 2);
+    moon.position.set(bodiesRadius, 0, 0);
+
+    scene.add(moon);
+
+    let pointLightHelper = new THREE.PointLightHelper(moon, 1, "black");
+    scene.add(pointLightHelper);
+
+    ambientMoon = new THREE.AmbientLight("blue",  maxAmbianceMoon);
+    scene.add(ambientMoon);
+}
+
+function createTreeSet(roadRadius, streetOuterRadius, streetInnerRadius, logRadius){
+    let noTrees = Math.random() * 10 + 10;
+
+    for (let i = 0; i < noTrees; i++){
+        let randomScale = Math.random() * 1.75 + 0.25;
+        let scaledLogRadius = logRadius * randomScale;
+
+        let x = Math.random() * (roadRadius - scaledLogRadius) * getRandomSign();
+        let maxY = Math.sqrt(Math.pow(roadRadius - scaledLogRadius, 2) - Math.pow(x, 2));
+        let y = maxY;
+
+
+        let inSafeZone = false;
+        while (!inSafeZone){
+            y = Math.random() * (maxY - scaledLogRadius) * getRandomSign();
+
+            let hypotenuse = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+
+            if (hypotenuse > (streetInnerRadius - scaledLogRadius) && hypotenuse < (streetOuterRadius + scaledLogRadius)){
+                inSafeZone = false;
+            }
+            else {
+                inSafeZone = true;
+            }
+        }
+
+        let result = createTree(logRadius);
+        let tree = result[0];
+        let heightOfTree = result[1];
+
+        tree.position.x = x;
+        tree.position.y += heightOfTree / 2;
+        tree.position.z = y;
+        scene.add(tree);
+    }
+}
+
+function getRandomSign(){
+    let sign = Math.random() * 2;
+    if (sign > 1){
+        return -1;
+    }
+    return 1;
+}
+
+function animation(){
+    //Controlling car movement
+    let percentage = (frameNumber % carCycle) / carCycle;
+
+    let angle = revolution * percentage;
+    let x = streetRadius * Math.cos(angle);
+    let z = streetRadius * Math.sin(angle);
+    car.position.x = x;
+    car.position.z = z;
+    car.rotation.y = revolution - angle;
+
+    //Controlling axle animation
+    let axles = [frontAxle, backAxle];
+    for (let i = 0; i < axles.length; i++){
+        let axle = axles[i];
+        axle.rotation.x += revolution / carCycle * 20;
+    }
+
+    //Animating Sun
+    percentage = (frameNumber % sunCycle) / sunCycle;
+    angle = percentage * revolution;
+    x = bodiesRadius * Math.cos(angle);
+    let y = bodiesRadius * Math.sin(angle);
+    sun.position.x = x;
+    sun.position.y = y;
+
+    //Animating the ambience of the sun
+    let intensity = Math.sin((revolution / (maxAmbianceSun * 2)) * percentage) * maxAmbianceSun;
+    intensity = Math.max(intensity, 0);
+    ambientSun.intensity = intensity;
+
+    //Animating Moon
+    percentage += 0.5;
+    percentage = (percentage >= 1) ? percentage - 1 : percentage;
+    angle = percentage * revolution;
+    x = bodiesRadius * Math.cos(angle);
+    y = bodiesRadius * Math.sin(angle);
+    moon.position.x = x;
+    moon.position.y = y;
+
+    //Animating the ambience of the Moon
+    intensity = Math.sin((revolution / (maxAmbianceMoon * 2)) * percentage) * maxAmbianceMoon;
+    intensity = Math.max(intensity, 0);
+    ambientMoon.intensity = intensity;
+}
+
+function createRims(wheelRadius, tubeRadius){
+    let rimNode = new THREE.Object3D();
+    for (let i = 0; i < 3; i++){
+        let geometry = new THREE.CylinderGeometry(tubeRadius * 0.5, tubeRadius * 0.5, wheelRadius * 2);
+        let material = new THREE.MeshLambertMaterial({
+            color: "yellow",
+        });
+
+        let rim = new THREE.Mesh(geometry, material);
+        rim.rotation.set(0, 0, i * revolution / 3);
+
+        rimNode.add(rim);
+    }
+    return rimNode;
+}
+
+function createWheelAndAxle(wheelRadius, tubeRadius, carWidth){
+    let axleLength = carWidth + tubeRadius * 4;
+
+    let axleNode = new THREE.Object3D();
+
+    let geometry = new THREE.CylinderGeometry(tubeRadius * 0.5, tubeRadius * 0.5, axleLength, 60);
+    let material = new THREE.MeshLambertMaterial({
+        color: "yellow",
+    });
+
+    let axle = new THREE.Mesh(geometry, material);
+    axle.rotation.set(0, revolution / 4, revolution / 4);
+
+    axleNode.add(axle);
+
+    let wheel = createWheel(wheelRadius, tubeRadius);
+    wheel.position.set(0, 0, axleLength / 2);
+    axleNode.add(wheel);
+
+    wheel = createWheel(wheelRadius, tubeRadius);
+    wheel.position.set(0, 0, axleLength / -2);
+    axleNode.add(wheel);
+
+    axleNode.rotation.set(0, revolution / 4, 0);
+
+    return [axleNode, axleLength];
+}
+
+function createWheel(wheelRadius, tubeRadius){
+    let wheelNode = new THREE.Object3D();
+
+    wheelNode.add(createRims(wheelRadius, tubeRadius));
+
+    let geometry = new THREE.TorusGeometry(wheelRadius, tubeRadius, 20, 80);
+    let material = new THREE.MeshLambertMaterial({
+        color: "blue"
+    });
+
+    let wheel = new THREE.Mesh(geometry, material);
+    wheelNode.add(wheel);
+    //wheel.rotation.set()
+
+    return wheelNode;
+}
+
+function createCar(){
+    let carNode = new THREE.Object3D();
+
+    let wheelRadius = 1;
+    let tubeRadius = 0.3;
+    let carWidth = 5;
+
+    let result = createCarBody(carWidth);
+
+    let carBody = result[0];
+    let carHeight = result[1];
+    let carLength = result[2];
+
+    carBody.position.y += carHeight / 2;
+    carNode.add(carBody);
+
+    result = createWheelAndAxle(wheelRadius, tubeRadius, carWidth);
+    let finalCarWidth = result[1];
+
+    frontAxle = result[0];
+    frontAxle.position.set(0, 0, carLength / 2 * 0.5);
+    carNode.add(frontAxle);
+
+    backAxle = createWheelAndAxle(wheelRadius, tubeRadius, carWidth)[0];
+    backAxle.position.set(0, 0, carLength / 2 * -0.5);
+    carNode.add(backAxle);
+
+    carNode.position.y += wheelRadius + tubeRadius;
+
+    //finalCarWidth;
+    let finalCarHeight = wheelRadius + tubeRadius + carHeight;
+    let finalCarDepth = carLength;
+
+    carNode.position.y -= finalCarHeight / 2;
+
+    return [carNode, finalCarWidth, finalCarHeight, finalCarDepth];
+}
+
+function createCarBody(carWidth){
+    let carBottomLength = carWidth * 2;
+    let carBottomHeight = carWidth * 0.4;
+
+    let carTopLength = carBottomLength / 2;
+    let carTopHeight = carBottomHeight / 2;
+
+    let bodyNode = new THREE.Object3D();
+
+    let geometry = new THREE.BoxGeometry(carWidth, carBottomHeight, carBottomLength);
+    let material = new THREE.MeshLambertMaterial({
+        color: "red",
+    });
+
+    let bottomBody = new THREE.Mesh(geometry, material);
+    bottomBody.position.set(0, carBottomHeight / -2, 0);
+
+    geometry = new THREE.BoxGeometry(carWidth, carTopHeight, carTopLength);
+
+    let topBody = new THREE.Mesh(geometry, material);
+    topBody.position.set(0, carTopHeight / 2, 0);
+
+    bodyNode.add(bottomBody);
+    bodyNode.add(topBody);
+
+    geometry = new THREE.CircleGeometry(carBottomHeight / 6, 32);
+    material = new THREE.MeshLambertMaterial({
+        color: "yellow",
+        side: THREE.DoubleSide
+    });
+
+    //Adding the left lights
+    /*let carLight = new THREE.Mesh(geometry, material);
+    carLight.position.set(carWidth / 3, carBottomHeight / -2, carBottomLength / 2 + tiny);
+    bodyNode.add(carLight);
+
+    carLeftLight = new THREE.SpotLight("blue", 2, 0, revolution / 18);
+    carLeftLight.position.set(carWidth / 3, carBottomHeight / -2, carBottomLength / 2 + tiny * 2);
+    carLeftLight.target.position.set(0, 0, 0);
+
+    let lightHelper = new THREE.SpotLightHelper(carLeftLight, "white");
+    bodyNode.add(carLeftLight);
+    bodyNode.add(carLeftLight.target);
+
+    scene.add(lightHelper);*/
+
+    //Head Lights
+    for (let i = 0; i < 2; i++){
+        let sign = (i === 0) ? 1 : -1;
+
+        let carLightObject = new THREE.Object3D();
+        carLightObject.position.set(carWidth / 3 * sign, carBottomHeight / -2, carBottomLength / 2);
+
+        let carLight = new THREE.Mesh(geometry, material);
+        carLight.position.z += tiny;
+        carLightObject.add(carLight);
+
+        let currLight = new THREE.SpotLight("white", 2, 0, revolution / 4, 0.5);
+        currLight.position.z -= tiny * 2;
+        currLight.position.y -= carBottomHeight / 2;
+        currLight.target.position.set(carLight.position.x, carLight.position.y - carBottomHeight / -2, carLight.position.z + tiny);
+
+        carSpotLights.push(currLight);
+
+        carLightObject.add(carSpotLights[carSpotLights.length - 1]);
+        carLightObject.add(carSpotLights[carSpotLights.length - 1].target);
+
+        let lightHelper = new THREE.SpotLightHelper(carSpotLights[carSpotLights.length - 1], "white");
+        spotLightHelpers.push(lightHelper);
+
+        bodyNode.add(carLightObject);
+
+        //scene.add(spotLightHelpers[spotLightHelpers.length - 1]);
+    }
+
+    let carHeight = carTopHeight + carBottomHeight;
+    bodyNode.position.y += carBottomHeight - carHeight / 2;
+
+    let lightPos = new THREE.Vector3();
+
+    return [bodyNode, carHeight, carBottomLength, lightPos];
+}
+
+function createRoad(){
+    let road = new THREE.Object3D();
+
+    let roadRadius = 20;
+    let roadHeight = 1;
+
+    let streetOuterRadius = roadRadius * 0.8;
+    let streetInnerRadius = roadRadius * 0.5;
+
+    let geometry = new THREE.CylinderGeometry(roadRadius, roadRadius, roadHeight, 60);
+    let material = new THREE.MeshLambertMaterial({
+        color: "green",
+    });
+
+    road.add(new THREE.Mesh(geometry, material));
+
+    geometry = new THREE.RingGeometry(streetInnerRadius, streetOuterRadius, 180);
+    material = new THREE.MeshLambertMaterial({
+        color: "grey",
+        side: THREE.DoubleSide
+    });
+
+    let ring = new THREE.Mesh(geometry, material);
+    ring.position.set(0, roadHeight / 2 + tiny, 0);
+    ring.rotation.set(revolution / 4, 0, 0);
+
+    road.add(ring);
+
+    return [road, roadHeight, roadRadius, streetOuterRadius, streetInnerRadius];
+}
+
+function createTree(logRadius){
+
+    let treeNode = new THREE.Object3D();
+
+    let logHeight = 2.5;
+    let coneHeight = logHeight * 2;
+
+    let coneRadius = logRadius * 3.5;
+
+    let geometry = new THREE.CylinderGeometry(logRadius, logRadius, logHeight, 20);
+    let material = new THREE.MeshLambertMaterial({
+        color: "brown",
+    });
+
+    treeNode.add(new THREE.Mesh(geometry, material));
+
+    geometry = new THREE.ConeGeometry(coneRadius, coneHeight, 20);
+    material = new THREE.MeshLambertMaterial({
+        color: "green",
+    });
+
+    let cone = new THREE.Mesh(geometry, material);
+    cone.position.set(0, coneHeight / 2 + logHeight / 2, 0);
+    treeNode.add(cone);
+
+    let heightOfTree = logHeight + coneHeight;
+    let widthOfTree = logRadius + coneRadius;
+    let depthOfTree = logRadius + coneRadius;
+
+    treeNode.position.y += logHeight / 2 - heightOfTree / 2;
+
+    return [treeNode, heightOfTree, widthOfTree, depthOfTree];
+}
+
+function animate(){
+    requestAnimationFrame(animate);
+
+    animation();
+
+    //moveCamera();
+
+    controls.update();
+
+    updateSpotLightHelpers();
+
+    renderer.render(scene, camera);
+
+    //frameNumber = 250;
+    frameNumber++;
+}
+
+function moveCamera(){
+    if (pressed){
+        switch (keyboardEvent.keyCode){
+            case 37: controls.moveLeft(1);  break;    // left arrow
+            case 39: controls.moveRight(1); break;    // right arrow
+            case 38: controls.moveUp(1);  break;    // up arrow
+            case 40: controls.moveDown(1);  break;    // down arrow
+            case 33: controls.moveForward(1);  break;    // page up
+            case 34: controls.moveBackward(1);  break;    // page down
+        }
+    }
+}
+
+function updateSpotLightHelpers(){
+    for (let i = 0; i < spotLightHelpers.length; i++){
+        let currPosition = carSpotLights[i].position;
+        carSpotLights[i].target.position.set(currPosition.x, currPosition.y, currPosition.z + tiny);
+
+        spotLightHelpers[i].update();
+    }
+}
+
+/**
+ * @param blockSize = 10
+ * @returns {GridHelper}
+ */
+function katGridHelper(blockSize){
+    blockSize = (blockSize === undefined) ? 10 : blockSize;
+
+    return new THREE.GridHelper(sceneDimensions, sceneDimensions / blockSize);
+}
+
+
+/*
+    color: "blue",
+    specular: "white",
+    shininess: 100,
+ */
